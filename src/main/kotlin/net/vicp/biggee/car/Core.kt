@@ -1,6 +1,7 @@
 package net.vicp.biggee.car
 
 import org.mapsforge.core.model.BoundingBox
+import org.mapsforge.core.model.LatLong
 import org.mapsforge.core.model.MapPosition
 import org.mapsforge.core.util.LatLongUtils
 import org.mapsforge.core.util.Parameters
@@ -15,6 +16,7 @@ import org.mapsforge.map.layer.download.tilesource.OpenStreetMapMapnik
 import org.mapsforge.map.model.common.PreferencesFacade
 import org.mapsforge.map.reader.MapFile
 import org.mapsforge.map.rendertheme.InternalRenderTheme
+import java.awt.BorderLayout
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
 import java.io.File
@@ -25,13 +27,16 @@ import javax.swing.JOptionPane
 import javax.swing.WindowConstants
 
 object Core : WindowAdapter() {
-    const val MAP_FILE = "/home/lucloner/china.map"
-    const val SHOW_DEBUG_LAYERS = false
+    const val MAP_FILE = "china.map"
+    const val SHOW_DEBUG_LAYERS = true
     const val SHOW_RASTER_MAP = false
     const val MESSAGE = "Are you sure you want to exit the application?"
     const val TITLE = "Confirm close"
     val GRAPHIC_FACTORY by lazy { AwtGraphicFactory.INSTANCE }
     val mapFile by lazy { File(MAP_FILE) }
+    val XUJIAHUI by lazy { LatLong(31.191340, 121.445790) }
+    val latLongHistory by lazy { LinkedHashMap<LatLong, Long>() }
+    var now = System.currentTimeMillis()
 
     lateinit var mapView: MapView
     lateinit var preferencesFacade: PreferencesFacade
@@ -65,11 +70,7 @@ object Core : WindowAdapter() {
             mapView.model.displayModel.setFixedTileSize(tileSize)
             val tileSource = OpenStreetMapMapnik.INSTANCE
             tileSource.userAgent = "mapsforge-samples-awt"
-            val tileDownloadLayer = KtTileDownloadLayer(
-                tileCache,
-                mapView.model.mapViewPosition,
-                tileSource
-            )
+            val tileDownloadLayer = KtTileDownloadLayer(tileCache, mapView.model.mapViewPosition, tileSource)
             layers.add(tileDownloadLayer)
             tileDownloadLayer.start()
             mapView.setZoomLevelMin(tileSource.zoomLevelMin)
@@ -87,14 +88,10 @@ object Core : WindowAdapter() {
             mapFiles.forEach { file ->
                 mapDataStore.addMapDataStore(MapFile(file), false, false)
             }
-            val tileRendererLayer = KtTileRendererLayer(
-                tileCache,
-                mapDataStore,
-                mapView.model.mapViewPosition,
-                null
-            ).apply {
-                setXmlRenderTheme(InternalRenderTheme.DEFAULT)
-            }
+            val tileRendererLayer =
+                KtTileRendererLayer(tileCache, mapDataStore, mapView.model.mapViewPosition, null).apply {
+                    setXmlRenderTheme(InternalRenderTheme.DEFAULT)
+                }
             layers.add(tileRendererLayer)
             boundingBox = mapDataStore.boundingBox()
         }
@@ -112,39 +109,78 @@ object Core : WindowAdapter() {
         }
 
         preferencesFacade = JavaPreferences(Preferences.userNodeForPackage(this::class.java))
-        frame = JFrame()
-        frame.title = "Mapsforge Samples"
-        frame.add(mapView)
-        frame.pack()
-        frame.setSize(1024, 768)
-        frame.setLocationRelativeTo(null)
-        frame.defaultCloseOperation = WindowConstants.DO_NOTHING_ON_CLOSE
-        frame.addWindowListener(this)
-        frame.isVisible = true
+        frame = JFrame().apply {
+            title = "Mapsforge Car Map"
+            layout = BorderLayout()
+            add(BorderLayout.CENTER, mapView)
+//            add(BorderLayout.NORTH, Button("test").apply {
+//                addActionListener {
+//
+//                }
+//            })
+            pack()
+            setSize(1024, 768)
+            setLocationRelativeTo(null)
+            defaultCloseOperation = WindowConstants.EXIT_ON_CLOSE
+            addWindowListener(this@Core)
+            isVisible = true
+        }
     }
 
     override fun windowOpened(e: WindowEvent?) {
         val model = mapView.model
         model.init(preferencesFacade)
         if (model.mapViewPosition.zoomLevel.toInt() == 0 || !boundingBox.contains(model.mapViewPosition.center)) {
-            val zoomLevel =
-                LatLongUtils.zoomForBounds(model.mapViewDimension.dimension, boundingBox, model.displayModel.tileSize)
-            model.mapViewPosition.mapPosition = MapPosition(boundingBox.getCenterPoint(), zoomLevel)
+            addLatLong(XUJIAHUI)
         }
     }
 
     override fun windowClosed(e: WindowEvent?) {
-        val result = JOptionPane.showConfirmDialog(
-            frame,
-            MESSAGE,
-            TITLE,
-            JOptionPane.YES_NO_OPTION
-        )
+        val result = JOptionPane.showConfirmDialog(frame, MESSAGE, TITLE, JOptionPane.YES_NO_OPTION)
         if (result == JOptionPane.YES_OPTION) {
             mapView.model.save(preferencesFacade)
             mapView.destroyAll()
             AwtGraphicFactory.clearResourceMemoryCache()
             frame.defaultCloseOperation = WindowConstants.EXIT_ON_CLOSE
+        }
+    }
+
+    fun addLatLong(latLong: LatLong): Long {
+        now = System.currentTimeMillis()
+        val result = latLongHistory.put(latLong, now) ?: -1
+        forcus()
+        return result
+    }
+
+    fun forcus() {
+        val points = latLongHistory.keys.toTypedArray().apply {
+            reverse()
+        }
+        val p0 = points.first()
+        val t0 = latLongHistory[p0] ?: -1
+
+        val p1 = if (points.size < 2) LatLong(p0.latitude + 0.1, p0.longitude + 0.1) else points[1]
+        val t1 = latLongHistory[p1] ?: -1
+
+        val model = mapView.model
+        model.init(preferencesFacade)
+        val zoomLevel =
+            LatLongUtils.zoomForBounds(
+                model.mapViewDimension.dimension,
+                BoundingBox(
+                    p0.latitude,
+                    p0.longitude,
+                    p1.latitude,
+                    p1.longitude
+                ),
+                model.displayModel.tileSize
+            )
+        model.mapViewPosition.setMapPosition(MapPosition(XUJIAHUI, zoomLevel), true)
+
+        latLongHistory.apply {
+            clear()
+            put(p1, t1)
+            put(p0, t0)
         }
     }
 }

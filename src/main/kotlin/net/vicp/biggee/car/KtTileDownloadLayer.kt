@@ -7,7 +7,8 @@ import org.mapsforge.map.layer.download.TileDownloadLayer
 import org.mapsforge.map.layer.download.tilesource.TileSource
 import org.mapsforge.map.model.IMapViewPosition
 
-class KtTileDownloadLayer(tileCache: TileCache, mapViewPosition: IMapViewPosition, tileSource: TileSource): TileDownloadLayer(tileCache,mapViewPosition,tileSource,Core.GRAPHIC_FACTORY) {
+class KtTileDownloadLayer(tileCache: TileCache, mapViewPosition: IMapViewPosition, tileSource: TileSource) :
+    TileDownloadLayer(tileCache, mapViewPosition, tileSource, Core.GRAPHIC_FACTORY) {
 
     override fun onTap(tapLatLong: LatLong?, layerXY: Point?, tapXY: Point?): Boolean {
         return super.onTap(tapLatLong, layerXY, tapXY)
