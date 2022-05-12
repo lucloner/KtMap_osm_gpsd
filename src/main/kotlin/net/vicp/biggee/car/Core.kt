@@ -1,5 +1,7 @@
 package net.vicp.biggee.car
 
+import com.ivkos.gpsd4j.client.GpsdClient
+import com.ivkos.gpsd4j.messages.reports.TPVReport
 import org.mapsforge.core.model.BoundingBox
 import org.mapsforge.core.model.LatLong
 import org.mapsforge.core.model.MapPosition
@@ -21,12 +23,13 @@ import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
 import java.io.File
 import java.util.*
+import java.util.concurrent.Executors
 import java.util.prefs.Preferences
 import javax.swing.JFrame
 import javax.swing.JOptionPane
 import javax.swing.WindowConstants
 
-object Core : WindowAdapter() {
+object Core : WindowAdapter(), Thread.UncaughtExceptionHandler {
     const val MAP_FILE = "china.map"
     const val SHOW_DEBUG_LAYERS = true
     const val SHOW_RASTER_MAP = false
@@ -125,6 +128,16 @@ object Core : WindowAdapter() {
             addWindowListener(this@Core)
             isVisible = true
         }
+
+        Executors.defaultThreadFactory().newThread {
+            try {
+                initGpsd()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+
+        Thread.setDefaultUncaughtExceptionHandler(this)
     }
 
     override fun windowOpened(e: WindowEvent?) {
@@ -182,5 +195,15 @@ object Core : WindowAdapter() {
             put(p1, t1)
             put(p0, t0)
         }
+    }
+
+    fun initGpsd() = GpsdClient("localhost", 2947).apply {
+        addHandler(TPVReport::class.java) {
+            addLatLong(LatLong(it.latitude, it.longitude))
+        }
+    }
+
+    override fun uncaughtException(t: Thread?, e: Throwable?) {
+        e?.printStackTrace()
     }
 }
