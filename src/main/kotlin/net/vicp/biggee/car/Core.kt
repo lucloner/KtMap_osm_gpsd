@@ -2,6 +2,7 @@ package net.vicp.biggee.car
 
 import com.ivkos.gpsd4j.client.GpsdClient
 import com.ivkos.gpsd4j.messages.reports.TPVReport
+import org.mapsforge.core.graphics.GraphicFactory
 import org.mapsforge.core.model.BoundingBox
 import org.mapsforge.core.model.LatLong
 import org.mapsforge.core.model.MapPosition
@@ -24,27 +25,32 @@ import java.awt.event.WindowEvent
 import java.io.File
 import java.util.*
 import java.util.concurrent.Executors
+import java.util.concurrent.Semaphore
 import java.util.prefs.Preferences
 import javax.swing.JFrame
 import javax.swing.JOptionPane
 import javax.swing.WindowConstants
 
 object Core : WindowAdapter(), Thread.UncaughtExceptionHandler {
-    const val MAP_FILE = "china.map"
-    const val SHOW_DEBUG_LAYERS = true
-    const val SHOW_RASTER_MAP = false
-    const val MESSAGE = "Are you sure you want to exit the application?"
-    const val TITLE = "Confirm close"
-    val GRAPHIC_FACTORY by lazy { AwtGraphicFactory.INSTANCE }
-    val mapFile by lazy { File(MAP_FILE) }
-    val XUJIAHUI by lazy { LatLong(31.191340, 121.445790) }
-    val latLongHistory by lazy { LinkedHashMap<LatLong, Long>() }
-    var now = System.currentTimeMillis()
+    private const val MAP_FILE = "china.map"
+    private const val SHOW_DEBUG_LAYERS = true
+    private const val SHOW_RASTER_MAP = false
+    private const val MESSAGE = "Are you sure you want to exit the application?"
+    private const val TITLE = "Confirm close"
+    val GRAPHIC_FACTORY: GraphicFactory by lazy { AwtGraphicFactory.INSTANCE }
+    private val mapFile by lazy { File(MAP_FILE) }
+
+    @Suppress("SpellCheckingInspection")
+    private val XUJIAHUI: LatLong by lazy { LatLong(31.191340, 121.445790) }
+    private val latLongHistory by lazy { LinkedHashMap<LatLong, Long>() }
+    private val semaphore by lazy { Semaphore(1) }
+    private var now = System.currentTimeMillis()
 
     lateinit var mapView: MapView
     lateinit var preferencesFacade: PreferencesFacade
     lateinit var boundingBox: BoundingBox
     lateinit var frame: JFrame
+
 
     fun init() {
         // Square frame buffer
@@ -129,15 +135,8 @@ object Core : WindowAdapter(), Thread.UncaughtExceptionHandler {
             isVisible = true
         }
 
-        Executors.defaultThreadFactory().newThread {
-            try {
-                initGpsd()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }.start()
-
         Thread.setDefaultUncaughtExceptionHandler(this)
+        Executors.newSingleThreadExecutor().execute { initGpsd() }
     }
 
     override fun windowOpened(e: WindowEvent?) {
@@ -158,21 +157,24 @@ object Core : WindowAdapter(), Thread.UncaughtExceptionHandler {
         }
     }
 
-    fun addLatLong(latLong: LatLong): Long {
+    private fun addLatLong(latLong: LatLong): Long {
         now = System.currentTimeMillis()
         val result = latLongHistory.put(latLong, now) ?: -1
-        forcus()
+        focus()
         return result
     }
 
-    fun forcus() {
+    private fun focus() {
+        if (!semaphore.tryAcquire()) {
+            return
+        }
         val points = latLongHistory.keys.toTypedArray().apply {
             reverse()
         }
         val p0 = points.first()
         val t0 = latLongHistory[p0] ?: -1
-
-        val p1 = if (points.size < 2) LatLong(p0.latitude + 0.1, p0.longitude + 0.1) else points[1]
+        var p1 = LatLong(p0.latitude + 0.02, p0.longitude + 0.02)
+        p1 = points.find { (latLongHistory[it] ?: t0) - t0 > 1000 } ?: p1
         val t1 = latLongHistory[p1] ?: -1
 
         val model = mapView.model
@@ -195,9 +197,11 @@ object Core : WindowAdapter(), Thread.UncaughtExceptionHandler {
             put(p1, t1)
             put(p0, t0)
         }
+
+        semaphore.release()
     }
 
-    fun initGpsd() = GpsdClient("localhost", 2947).apply {
+    private fun initGpsd() = GpsdClient("localhost", 2947).apply {
         addHandler(TPVReport::class.java) {
             addLatLong(LatLong(it.latitude, it.longitude))
         }
@@ -205,5 +209,6 @@ object Core : WindowAdapter(), Thread.UncaughtExceptionHandler {
 
     override fun uncaughtException(t: Thread?, e: Throwable?) {
         e?.printStackTrace()
+        semaphore.release()
     }
 }
