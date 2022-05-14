@@ -192,10 +192,10 @@ object Core : WindowAdapter(), Thread.UncaughtExceptionHandler {
             )
         model.mapViewPosition.setMapPosition(MapPosition(XUJIAHUI, zoomLevel), true)
 
-        latLongHistory.apply {
-            clear()
-            put(p1, t1)
-            put(p0, t0)
+        points.forEach {
+            if ((latLongHistory[it] ?: 0) < t1) {
+                latLongHistory.remove(it)
+            }
         }
 
         semaphore.release()
